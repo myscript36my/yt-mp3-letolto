@@ -1,0 +1,58 @@
+name: Windows .exe build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Csomagok telepítése
+        run: |
+          python -m pip install --upgrade pip
+          pip install "yt-dlp[default]" mutagen pyinstaller pillow
+
+      - name: Ikon készítése
+        run: python make_icon.py
+
+      - name: .exe fordítása
+        run: >
+          pyinstaller --noconfirm --clean --onefile --windowed
+          --name YT-MP3-Letolto --icon icon.ico
+          --collect-all yt_dlp_ejs --collect-submodules yt_dlp
+          --hidden-import mutagen
+          yt_mp3_gui.py
+
+      - name: Az elkészült .exe tesztelése
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\YT-MP3-Letolto.exe -ArgumentList "--selftest", "$PWD\selftest.txt" -Wait -PassThru
+          Get-Content selftest.txt -Encoding utf8
+          if ($p.ExitCode -ne 0) { throw "Az önteszt nem sikerült (kód: $($p.ExitCode))" }
+
+      - name: Feltöltés (Actions artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: YT-MP3-Letolto
+          path: dist/YT-MP3-Letolto.exe
+
+      - name: Kiadás (Releases)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v$(date -u +%Y.%m.%d)-${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" dist/YT-MP3-Letolto.exe \
+            --title "YT-MP3-Letolto $TAG" \
+            --notes "Töltsd le a YT-MP3-Letolto.exe fájlt, és indítsd el dupla kattintással."
